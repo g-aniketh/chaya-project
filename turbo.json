@@ -6,7 +6,16 @@
       "dependsOn": ["^build"],
       "inputs": ["$TURBO_DEFAULT$", ".env*"],
       "outputs": [".next/**", "!.next/cache/**", "dist/**"],
-      "env": ["DATABASE_URL", "JWT_SECRET", "UPLOADTHING_TOKEN", "FRONTEND_URL", "PORT", "HOST", "NODE_ENV"]
+      "env": [
+        "DATABASE_URL",
+        "JWT_SECRET",
+        "UPLOADTHING_TOKEN",
+        "FRONTEND_URL",
+        "PORT",
+        "HOST",
+        "NODE_ENV",
+        "NEXT_PUBLIC_API_BASE_URL"
+      ]
     },
     "lint": {
       "dependsOn": ["^lint"]
@@ -17,7 +26,17 @@
     "dev": {
       "cache": false,
       "persistent": true,
-      "env": ["DATABASE_URL", "JWT_SECRET", "UPLOADTHING_TOKEN", "FRONTEND_URL", "PORT", "HOST", "NODE_ENV"]
+      "env": [
+        "DATABASE_URL",
+        "REDIS_URL",
+        "JWT_SECRET",
+        "UPLOADTHING_TOKEN",
+        "FRONTEND_URL",
+        "PORT",
+        "HOST",
+        "NODE_ENV",
+        "NEXT_PUBLIC_API_BASE_URL"
+      ]
     },
     "db:generate": {
       "cache": false,

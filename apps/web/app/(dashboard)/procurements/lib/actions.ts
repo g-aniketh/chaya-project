@@ -6,7 +6,7 @@ import type { ProcurementWithRelations } from './types';
 import type { UpdateProcurementInput } from '@chaya/shared';
 import type { ProcurementWithFarmerForStore } from '@/app/stores/processing-batch-form';
 
-const BACKEND_URL = process.env.API_URL || 'http://localhost:5000';
+const BACKEND_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000';
 
 interface GetProcurementsParams {
   page?: number;

@@ -4,7 +4,7 @@ import { cookies } from 'next/headers';
 import type { ProcessingBatchWithDetails, ProcessingBatchWithSummary } from './types';
 import type { Drying, FinalizeProcessingStageInput } from '@chaya/shared';
 
-const BACKEND_URL = process.env.API_URL || 'http://localhost:5000';
+const BACKEND_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000';
 
 export async function getProcessingBatchDetailsById(batchId: number): Promise<ProcessingBatchWithDetails> {
   if (isNaN(batchId)) {

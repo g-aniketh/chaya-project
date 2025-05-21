@@ -38,7 +38,7 @@ export function FarmerForm({ mode, open, onOpenChange, farmerId }: FarmerFormPro
         },
       };
 
-      const BACKEND_URL = process.env.API_URL || 'http://localhost:5000';
+      const BACKEND_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000';
 
       if (mode === 'add') {
         console.log('Doing a POST request to add a new farmer');

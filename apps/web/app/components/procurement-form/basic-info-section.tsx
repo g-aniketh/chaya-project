@@ -59,7 +59,7 @@ export function BasicInfoSection() {
     const fetchFarmers = async () => {
       setIsLoadingFarmers(true);
       try {
-        const BACKEND_URL = process.env.API_URL || 'http://localhost:5000';
+        const BACKEND_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000';
         const response = await axios.get(`${BACKEND_URL}/api/farmers`, {
           params: { limit: 1000, isActive: true },
           withCredentials: true,
