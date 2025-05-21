@@ -7,6 +7,7 @@ import { Label } from '@workspace/ui/components/label';
 import { Input } from '@workspace/ui/components/input';
 import { Button } from '@workspace/ui/components/button';
 import { cn } from '@workspace/ui/lib/utils';
+import { useAuth } from '@/app/providers/auth-provider';
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000';
 
@@ -15,6 +16,7 @@ export function LoginForm({ className, ...props }: React.ComponentPropsWithoutRe
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const { triggerSessionCheck } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,9 +37,9 @@ export function LoginForm({ className, ...props }: React.ComponentPropsWithoutRe
         throw new Error(data.error || data.message || 'Invalid credentials or login failed');
       }
 
-      if (typeof window !== 'undefined') {
-        console.log('Login successful. AuthProvider will handle redirect from /login page.');
-      }
+      console.log('Login successful from API. Triggering session check in AuthProvider.');
+      triggerSessionCheck(); // <--- CALL THIS ON SUCCESS
+      // AuthProvider will now re-run its useEffect, call /me, set user, and redirect from /login.
     } catch (err: unknown) {
       if (err instanceof Error) {
         setError(err.message);
@@ -49,7 +51,6 @@ export function LoginForm({ className, ...props }: React.ComponentPropsWithoutRe
       setIsLoading(false);
     }
   };
-
   return (
     <form
       className={cn('flex flex-col gap-6 p-4 md:p-6 bg-card rounded-lg shadow', className)}
