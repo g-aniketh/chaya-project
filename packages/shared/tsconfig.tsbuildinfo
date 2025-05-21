@@ -1,0 +1,13 @@
+{
+  "root": [
+    "./src/index.ts",
+    "./src/schemas/auth.ts",
+    "./src/schemas/farmer.ts",
+    "./src/schemas/processingBatch.ts",
+    "./src/schemas/processingStage.ts",
+    "./src/schemas/procurement.ts",
+    "./src/schemas/sale.ts",
+    "./src/schemas/users.ts"
+  ],
+  "version": "5.8.3"
+}

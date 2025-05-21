@@ -1,0 +1,28 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "ui": "tui",
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "inputs": ["$TURBO_DEFAULT$", ".env*"],
+      "outputs": [".next/**", "!.next/cache/**", "dist/**"],
+      "env": ["DATABASE_URL", "JWT_SECRET", "UPLOADTHING_TOKEN", "FRONTEND_URL", "PORT", "HOST", "NODE_ENV"]
+    },
+    "lint": {
+      "dependsOn": ["^lint"]
+    },
+    "check-types": {
+      "dependsOn": ["^check-types"]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true,
+      "env": ["DATABASE_URL", "JWT_SECRET", "UPLOADTHING_TOKEN", "FRONTEND_URL", "PORT", "HOST", "NODE_ENV"]
+    },
+    "db:generate": {
+      "cache": false,
+      "outputs": ["node_modules/.prisma/**", "packages/shared/src/generated/**"]
+    }
+  },
+  "globalDependencies": [".env"]
+}

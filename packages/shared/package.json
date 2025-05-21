@@ -1,0 +1,30 @@
+{
+  "name": "@chaya/shared",
+  "version": "0.0.1",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "scripts": {
+    "build": "tsc --build",
+    "dev": "tsc --watch",
+    "lint": "eslint . --ext .ts,.tsx",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:studio": "prisma studio",
+    "db:seed": "bun ./prisma/seed.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.6.0",
+    "@types/bcryptjs": "^2.4.6",
+    "bcryptjs": "^2.4.3",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@faker-js/faker": "^9.6.0",
+    "@types/bcrypt": "^5.0.2",
+    "eslint": "^9.20.1",
+    "prisma": "^6.6.0",
+    "typescript": "^5.3.3",
+    "typescript-eslint": "^8.24.1"
+  }
+}

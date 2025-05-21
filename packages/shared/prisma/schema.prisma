@@ -1,0 +1,228 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum Relationship {
+  SELF
+  SPOUSE
+  CHILD
+  OTHER
+}
+
+enum Role {
+  ADMIN
+  STAFF
+}
+
+enum ProcessingStageStatus {
+  IN_PROGRESS
+  FINISHED
+  CANCELLED
+}
+
+model Ping {
+  id        Int      @id @default(autoincrement())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model User {
+  id             Int               @id @default(autoincrement())
+  email          String            @unique
+  password       String
+  name           String
+  role           Role              @default(STAFF)
+  isActive       Boolean           @default(true)
+  isEnabled      Boolean           @default(true)
+  lastLoginAt    DateTime?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  farmersCreated Farmer[]          @relation("CreatedByUser")
+  farmersUpdated Farmer[]          @relation("UpdatedByUser")
+  batchesCreated ProcessingBatch[] @relation("BatchCreatedByUser")
+  stagesCreated  ProcessingStage[] @relation("StageCreatedByUser")
+  salesCreated   Sale[]            @relation("SaleCreatedByUser")
+
+  @@map("users")
+}
+
+model Farmer {
+  id                 Int               @id @default(autoincrement())
+  surveyNumber       String            @unique
+  name               String
+  relationship       Relationship
+  gender             Gender
+  community          String
+  aadharNumber       String            @unique
+  state              String
+  district           String
+  mandal             String
+  village            String
+  panchayath         String
+  dateOfBirth        DateTime
+  age                Int
+  contactNumber      String
+  isActive           Boolean           @default(true)
+  createdById        Int
+  updatedById        Int
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  bankDetails        BankDetails?
+  documents          FarmerDocuments?
+  createdBy          User              @relation("CreatedByUser", fields: [createdById], references: [id])
+  updatedBy          User              @relation("UpdatedByUser", fields: [updatedById], references: [id])
+  fields             Field[]
+  procurements       Procurement[]
+  processingBatches  ProcessingBatch[] @relation("FarmerToProcessingBatch")
+
+  @@map("farmers")
+}
+
+model FarmerDocuments {
+  id            Int      @id @default(autoincrement())
+  profilePicUrl String
+  aadharDocUrl  String
+  bankDocUrl    String
+  farmerId      Int      @unique
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  farmer        Farmer   @relation(fields: [farmerId], references: [id], onDelete: Cascade)
+
+  @@map("farmer_documents")
+}
+
+model BankDetails {
+  id            Int      @id @default(autoincrement())
+  ifscCode      String
+  bankName      String
+  branchName    String
+  accountNumber String
+  address       String
+  bankCode      String
+  farmerId      Int      @unique
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  farmer        Farmer   @relation(fields: [farmerId], references: [id], onDelete: Cascade)
+
+  @@map("bank_details")
+}
+
+model Field {
+  id              Int      @id @default(autoincrement())
+  areaHa          Float
+  yieldEstimate   Float
+  location        Json
+  landDocumentUrl String
+  farmerId        Int
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  farmer          Farmer   @relation(fields: [farmerId], references: [id], onDelete: Cascade)
+
+  @@map("fields")
+}
+
+model Procurement {
+  id                 Int        @id @default(autoincrement())
+  farmerId           Int
+  crop               String
+  procuredForm       String
+  speciality         String
+  quantity           Float
+  procurementNumber  String     @unique
+  date               DateTime
+  time               DateTime
+  lotNo              Int
+  procuredBy         String
+  vehicleNo          String?
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+  farmer             Farmer     @relation(fields: [farmerId], references: [id], onDelete: Cascade)
+  processingBatchId  Int?
+  processingBatch    ProcessingBatch? @relation(fields: [processingBatchId], references: [id], onDelete: SetNull)
+
+  @@map("procurements")
+}
+
+model ProcessingBatch {
+  id                    Int               @id @default(autoincrement())
+  batchCode             String            @unique // Processing Batch Code
+  crop                  String
+  lotNo                 Int
+  initialBatchQuantity  Float // Sum of quantities from procurements
+  createdById           Int
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+  procurements          Procurement[]
+  processingStages      ProcessingStage[] @relation("BatchToStages")
+  sales                 Sale[]            @relation("BatchToSales")
+  createdBy             User              @relation("BatchCreatedByUser", fields: [createdById], references: [id])
+  farmerId              Int?
+  farmer                Farmer?           @relation("FarmerToProcessingBatch", fields: [farmerId], references: [id])
+
+  @@map("processing_batches")
+}
+
+model ProcessingStage {
+  id                    Int                   @id @default(autoincrement())
+  processingBatchId     Int
+  processingCount       Int                   @default(1) // P1, P2, etc.
+  processMethod         String                // "wet", "dry"
+  initialQuantity       Float                 // Quantity at the start of this stage
+  quantityAfterProcess  Float?                // Quantity at the end of this stage
+  dateOfProcessing      DateTime              // Start date of this stage
+  dateOfCompletion      DateTime?             // End date of this stage
+  doneBy                String
+  status                ProcessingStageStatus @default(IN_PROGRESS)
+  createdById           Int
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+  processingBatch       ProcessingBatch       @relation("BatchToStages", fields: [processingBatchId], references: [id], onDelete: Cascade)
+  dryingEntries         Drying[]
+  sales                 Sale[]                @relation("StageToSales")
+  createdBy             User                  @relation("StageCreatedByUser", fields: [createdById], references: [id])
+
+  @@map("processing_stages")
+}
+
+model Drying {
+  id                  Int             @id @default(autoincrement())
+  processingStageId   Int
+  day                 Int
+  temperature         Float
+  humidity            Float
+  pH                  Float
+  moisturePercentage  Float
+  currentQuantity     Float           // Weight of crop after this day's drying
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+  processingStage     ProcessingStage @relation(fields: [processingStageId], references: [id], onDelete: Cascade)
+
+  @@map("drying_entries")
+}
+
+model Sale {
+  id                  Int             @id @default(autoincrement())
+  processingBatchId   Int
+  processingStageId   Int
+  quantitySold        Float
+  dateOfSale          DateTime
+  createdById         Int
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+  processingBatch     ProcessingBatch @relation("BatchToSales", fields: [processingBatchId], references: [id], onDelete: Cascade)
+  processingStage     ProcessingStage @relation("StageToSales", fields: [processingStageId], references: [id], onDelete:Restrict)
+  createdBy           User            @relation("SaleCreatedByUser", fields: [createdById], references: [id])
+
+  @@map("sales")
+}

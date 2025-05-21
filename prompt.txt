@@ -1,0 +1,29 @@
+Here's a comprehensive prompt for a new chat that captures all the context needed:
+
+---
+
+I'm building a farmer management system with a Next.js frontend and a TypeScript-Fastify backend. I've already implemented most of the data visualization/management components for farmers using shadcn/ui, Tanstack Table, and caching. 
+
+Now I need help implementing the farmer form with integrated file uploads. Here's my approach:
+
+1. I want to use UploadThing to handle file uploads directly from the client to the storage bucket.
+2. The user will upload documents to UploadThing first, and get back URLs.
+3. Once uploads are complete, I'll send all the farmer data (including document URLs) to my Fastify server.
+4. My Fastify server will then store the farmer record with those URLs in my PostgreSQL database.
+
+My database schema includes:
+- Farmer model (core details)
+- BankDetails (related one-to-one)
+- FarmerDocuments (profile pic, Aadhar, bank docs - one-to-one)
+- Fields (land details - one-to-many)
+
+My Fastify endpoints are already set up to handle CRUD operations for farmers. They expect a request body with farmer data, bank details, documents (URLs), and fields.
+
+I need help with:
+1. Setting up UploadThing in my Next.js app
+2. Creating a multi-step form for farmer registration with file upload components
+3. Implementing client-side validation (including file size limits - max 500KB per file)
+4. Coordinating the upload-then-submit flow (first upload files, get URLs, then submit all data)
+5. Error handling for both file uploads and farmer data submission
+
+Can you help me implement this solution? I'll provide additional context as needed.

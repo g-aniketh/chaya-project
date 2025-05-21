@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "outDir": "dist", // Output directory for compiled files
+    "rootDir": "src", // Root directory for source files
+    "declaration": true, // Generate .d.ts files for type declarations
+    "declarationMap": true, // Generate .d.ts.map files for debugging
+    "module": "ESNext", // Use ESNext module system
+    "moduleResolution": "Node", // Resolve modules like Node.js
+    "target": "ESNext", // Target modern JavaScript
+    "strict": true, // Enable strict type checking
+    "esModuleInterop": true, // Enable interoperability between CommonJS and ES modules
+    "skipLibCheck": true // Skip type checking of declaration files
+  },
+  "include": ["src"], // Include all files in the src folder
+  "exclude": ["node_modules", "dist"] // Exclude node_modules and dist folders
+}

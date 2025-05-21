@@ -1,0 +1,664 @@
+File Uploads For Developers
+UploadThing is the easiest way to add file uploads to your full stack TypeScript application. Many services have tried to build a "better S3", but in our opinion, none found the right compromise of ownership, flexibility and safety.
+
+Next.js App Router Setup
+Oh, a little bleeding edge are we? We're big fans of app/ and server components, and we think you'll love what we've built 🙏
+
+Setting up your environment
+Install the packages
+npm
+pnpm
+yarn
+bun
+npm install uploadthing @uploadthing/react
+
+Copy
+Copied!
+Add env variables
+.env
+UPLOADTHING_TOKEN=... # A token for interacting with the SDK
+
+Copy
+Copied!
+If you don't already have a uploadthing secret key, sign up ↗ and create one from the dashboard! ↗
+
+Set Up A FileRouter
+Creating your first FileRoute
+All files uploaded to uploadthing are associated with a FileRoute. The following is a very minimalistic example, with a single FileRoute "imageUploader". Think of a FileRoute similar to an endpoint, it has:
+
+Permitted types ["image", "video", etc]
+Max file size
+How many files are allowed to be uploaded
+(Optional) input validation to validate client-side data sent to the route
+(Optional) middleware to authenticate and tag requests
+onUploadComplete callback for when uploads are completed
+To get full insight into what you can do with the FileRoutes, please refer to the File Router API.
+
+app/api/uploadthing/core.ts
+import { createUploadthing, type FileRouter } from "uploadthing/next";
+import { UploadThingError } from "uploadthing/server";
+const f = createUploadthing();
+const auth = (req: Request) => ({ id: "fakeId" }); // Fake auth function
+// FileRouter for your app, can contain multiple FileRoutes
+export const ourFileRouter = {
+  // Define as many FileRoutes as you like, each with a unique routeSlug
+  imageUploader: f({
+    image: {
+      /**
+       * For full list of options and defaults, see the File Route API reference
+       * @see https://docs.uploadthing.com/file-routes#route-config
+       */
+      maxFileSize: "4MB",
+      maxFileCount: 1,
+    },
+  })
+    // Set permissions and file types for this FileRoute
+    .middleware(async ({ req }) => {
+      // This code runs on your server before upload
+      const user = await auth(req);
+      // If you throw, the user will not be able to upload
+      if (!user) throw new UploadThingError("Unauthorized");
+      // Whatever is returned here is accessible in onUploadComplete as `metadata`
+      return { userId: user.id };
+    })
+    .onUploadComplete(async ({ metadata, file }) => {
+      // This code RUNS ON YOUR SERVER after upload
+      console.log("Upload complete for userId:", metadata.userId);
+      console.log("file url", file.url);
+      // !!! Whatever is returned here is sent to the clientside `onClientUploadComplete` callback
+      return { uploadedBy: metadata.userId };
+    }),
+} satisfies FileRouter;
+export type OurFileRouter = typeof ourFileRouter;
+
+Copy
+Copied!
+Create a Next.js API route using the FileRouter
+File path here doesn't matter, you can serve this from any route. We recommend serving it from /api/uploadthing.
+
+app/api/uploadthing/route.ts
+import { createRouteHandler } from "uploadthing/next";
+import { ourFileRouter } from "./core";
+// Export routes for Next App Router
+export const { GET, POST } = createRouteHandler({
+  router: ourFileRouter,
+  // Apply an (optional) custom config:
+  // config: { ... },
+});
+
+Copy
+Copied!
+See configuration options in server API reference
+
+Create The UploadThing Components
+We provide components to make uploading easier. We highly recommend re-exporting them with the types assigned, but you CAN import the components individually from @uploadthing/react instead.
+
+src/utils/uploadthing.ts
+import {
+  generateUploadButton,
+  generateUploadDropzone,
+} from "@uploadthing/react";
+import type { OurFileRouter } from "~/app/api/uploadthing/core";
+export const UploadButton = generateUploadButton<OurFileRouter>();
+export const UploadDropzone = generateUploadDropzone<OurFileRouter>();
+
+Copy
+Copied!
+Add UploadThing's Styles
+Tailwind v3
+Tailwind v4
+Not Tailwind
+Wrap your Tailwind config with the withUt helper. You can learn more about our Tailwind helper in the "Theming" page
+
+import { withUt } from "uploadthing/tw";
+export default withUt({
+  // Your existing Tailwind config
+  content: ["./src/**/*.{ts,tsx,mdx}"],
+  ...
+});
+
+Copy
+Copied!
+Mount A Button And Upload!
+Don't forget to add the "use client"; directive at the top of your file, since the UploadButton component needs to run on the client-side.
+
+app/example-uploader/page.tsx
+"use client";
+import { UploadButton } from "~/utils/uploadthing";
+export default function Home() {
+  return (
+    <main className="flex min-h-screen flex-col items-center justify-between p-24">
+      <UploadButton
+        endpoint="imageUploader"
+        onClientUploadComplete={(res) => {
+          // Do something with the response
+          console.log("Files: ", res);
+          alert("Upload Completed");
+        }}
+        onUploadError={(error: Error) => {
+          // Do something with the error.
+          alert(`ERROR! ${error.message}`);
+        }}
+      />
+    </main>
+  );
+}
+
+Copy
+Copied!
+💡 Optional
+Improving SSR
+UploadThing needs to get info from your server to get permissions info. Normally this means a loading state. We built an optional plugin to prevent that
+
+Without SSR Plugin
+No file chosenLoading...
+With SSR Plugin
+No file chosenReady
+Allowed content
+To add SSR hydration and avoid that loading state, simply render the <NextSSRPlugin /> hydration helper in the body of your root layout before the children.
+
+app/layout.tsx
+import { NextSSRPlugin } from "@uploadthing/react/next-ssr-plugin";
+import { extractRouterConfig } from "uploadthing/server";
+import { ourFileRouter } from "~/app/api/uploadthing/core";
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <html lang="en">
+      <body>
+        <NextSSRPlugin
+          /**
+           * The `extractRouterConfig` will extract **only** the route configs
+           * from the router to prevent additional information from being
+           * leaked to the client. The data passed to the client is the same
+           * as if you were to fetch `/api/uploadthing` directly.
+           */
+          routerConfig={extractRouterConfig(ourFileRouter)}
+        />
+        {children}
+      </body>
+    </html>
+  );
+}
+
+Copy
+Copied!
+If using the experimental ppr or dynamicIO features in Next.js 15, wrap the <NextSSRPlugin /> in suspense and call await connection() before rendering the component.
+
+app/layout.tsx
+import { connection } from "next/server"; 
+import { Suspense } from "react"; 
+async function UTSSR() {
+  await connection(); 
+  return <NextSSRPlugin routerConfig={extractRouterConfig(ourFileRouter)} />
+}
+export default function RootLayout(props) {
+  return (
+    <html>
+      {...}
+      <Suspense> // [!code ++]
+        <UTSSR />
+      </Suspense> // [!code ++]
+      {...}
+    </html>
+  )
+}
+
+
+Fastify docs: 
+Getting started with Fastify
+Added in v5.6
+
+Package Setup
+Install the package
+npm
+pnpm
+yarn
+bun
+npm install uploadthing
+
+Copy
+Copied!
+Add env variables
+If you don't already have a uploadthing secret key, sign up ↗ and create one from the dashboard! ↗
+
+UPLOADTHING_TOKEN=... # A token for interacting with the SDK
+
+Copy
+Copied!
+Set Up A FileRouter
+Creating your first FileRoute
+All files uploaded to uploadthing are associated with a FileRoute. The following is a very minimalistic example, with a single FileRoute "imageUploader". Think of a FileRoute similar to an endpoint, it has:
+
+Permitted types ["image", "video", etc]
+Max file size
+How many files are allowed to be uploaded
+(Optional) input validation to validate client-side data sent to the route
+(Optional) middleware to authenticate and tag requests
+onUploadComplete callback for when uploads are completed
+To get full insight into what you can do with the FileRoutes, please refer to the File Router API.
+
+src/uploadthing.ts
+import { createUploadthing, type FileRouter } from "uploadthing/fastify";
+const f = createUploadthing();
+export const uploadRouter = {
+  // Define as many FileRoutes as you like, each with a unique routeSlug
+  imageUploader: f({
+    image: {
+      /**
+       * For full list of options and defaults, see the File Route API reference
+       * @see https://docs.uploadthing.com/file-routes#route-config
+       */
+      maxFileSize: "4MB",
+      maxFileCount: 1,
+    },
+  }).onUploadComplete((data) => {
+    console.log("upload completed", data);
+  }),
+} satisfies FileRouter;
+export type OurFileRouter = typeof uploadRouter;
+
+Copy
+Copied!
+Register the UploadThing plugin
+src/index.ts
+import Fastify from "fastify";
+import { createRouteHandler } from "uploadthing/fastify";
+import { uploadRouter } from "./router";
+const fastify = Fastify({ logger: true });
+fastify
+  /** ... */
+  .register(createRouteHandler, {
+    router: uploadRouter,
+    config: { ... },
+  });
+
+Copy
+Copied!
+See configuration options in server API reference
+
+Use the FileRouter in your app
+Client side usage differs ever so slightly from the fullstack framework setups when using a separate backend server. You'll need to set the URL of your server when you generate the components and helpers.
+
+import { generateUploadButton } from "@uploadthing/react";
+export const UploadButton = generateUploadButton({
+  url: "https://your-server.com/api/uploadthing",
+});
+// ...
+
+Copy
+Copied!
+Please note that you might need to setup some CORS rules on your server to allow the client to make requests to the server.
+
+For the remaining usage, please refer to client side examples of the fullstack framework guides:
+
+Next.js
+Solid.js
+Vue ↗
+Svelte
+or check out the full API reference:
+
+@uploadthing/react
+uploadthing/client
+
+
+Getting started with Fastify
+Added in v5.6
+
+Package Setup
+Install the package
+npm
+pnpm
+yarn
+bun
+npm install uploadthing
+
+Copy
+Copied!
+Add env variables
+If you don't already have a uploadthing secret key, sign up ↗ and create one from the dashboard! ↗
+
+UPLOADTHING_TOKEN=... # A token for interacting with the SDK
+
+Copy
+Copied!
+Set Up A FileRouter
+Creating your first FileRoute
+All files uploaded to uploadthing are associated with a FileRoute. The following is a very minimalistic example, with a single FileRoute "imageUploader". Think of a FileRoute similar to an endpoint, it has:
+
+Permitted types ["image", "video", etc]
+Max file size
+How many files are allowed to be uploaded
+(Optional) input validation to validate client-side data sent to the route
+(Optional) middleware to authenticate and tag requests
+onUploadComplete callback for when uploads are completed
+To get full insight into what you can do with the FileRoutes, please refer to the File Router API.
+
+src/uploadthing.ts
+import { createUploadthing, type FileRouter } from "uploadthing/fastify";
+const f = createUploadthing();
+export const uploadRouter = {
+  // Define as many FileRoutes as you like, each with a unique routeSlug
+  imageUploader: f({
+    image: {
+      /**
+       * For full list of options and defaults, see the File Route API reference
+       * @see https://docs.uploadthing.com/file-routes#route-config
+       */
+      maxFileSize: "4MB",
+      maxFileCount: 1,
+    },
+  }).onUploadComplete((data) => {
+    console.log("upload completed", data);
+  }),
+} satisfies FileRouter;
+export type OurFileRouter = typeof uploadRouter;
+
+Copy
+Copied!
+Register the UploadThing plugin
+src/index.ts
+import Fastify from "fastify";
+import { createRouteHandler } from "uploadthing/fastify";
+import { uploadRouter } from "./router";
+const fastify = Fastify({ logger: true });
+fastify
+  /** ... */
+  .register(createRouteHandler, {
+    router: uploadRouter,
+    config: { ... },
+  });
+
+Copy
+Copied!
+See configuration options in server API reference
+
+Use the FileRouter in your app
+Client side usage differs ever so slightly from the fullstack framework setups when using a separate backend server. You'll need to set the URL of your server when you generate the components and helpers.
+
+import { generateUploadButton } from "@uploadthing/react";
+export const UploadButton = generateUploadButton({
+  url: "https://your-server.com/api/uploadthing",
+});
+// ...
+
+Uploading Files
+Uploading files is the first step in the process of uploading files to UploadThing. This page explains the general process of uploading files and how you can use the UploadThing API to upload files. There are two ways to upload files to UploadThing:
+
+Client Side Uploads
+The most common approach to uploading files is to use client-side uploads. With client side uploads, you do not have to pay ingress / egress fees for transferring the files binary data through your server. Your server instead will generate presigned URLs which the client will then use to upload the files to UploadThing.
+
+Client Side Uploads Diagram
+The UploadThing SDKs provide a convenient way to perform client-side uploads using File Routes that let you define what type of files are allowed for each route, how large the files can be and how many files can be uploaded. You can also define middleware validation based on the request to authenticate the user before continuing the upload process.
+
+The easiest way to get started with client-side uploads it to define a File Router, expose it on your server using one of our adapters route handlers, and then upload the files using our built-in components or upload helpers. Here are some examples that should fit most of your needs, no matter what framework you're using:
+
+Framework	Docs	Example
+Backend Adapters	Express, Fastify, Fetch, H3	backend-adapters/server ↗
+Vanilla JavaScript	API Reference - Client	backend-adapters/client-vanilla ↗
+React	API Reference - React	backend-adapters/client-react ↗
+Vue.js	-	backend-adapters/client-vue ↗
+Next.js App Router	Next.js App Router Setup	minimal-appdir ↗
+Next.js Pages Router	Next.js Page Router Setup	minimal-pagedir ↗
+SolidStart	SolidStart Setup	minimal-solidstart ↗
+Astro	Getting Started with Astro	minimal-astro-react ↗
+SvelteKit	Getting Started with SvelteKit	minimal-sveltekit ↗
+Nuxt	Getting Started with Nuxt	minimal-nuxt ↗
+If none of the above suits your needs, you can also build your own SDKs. In the following sections, we will describe how to do just that.
+
+Building the backend adapter
+The first step is to build a backend adapter. The adapter will be responsible for receiving the client request, validating that the request conforms to your requirements, and then retrieving and sending back the presigned URLs to the client.
+
+We will not go in depth on the details here, however, you can refer to the implementations of the official TypeScript SDK ↗ or the community Python SDK ↗ for reference.
+
+If you want your adapter to be compatible with the official frontend SDKs, it should follow this interface:
+
+GET /api/uploadthing
+
+Input Query Parameters: None
+Output JSON: EndpointMetadata ↗
+POST /api/uploadthing
+
+Input Query Parameters:
+slug: string: The slug of the file route
+actionType: "upload": The action type of the file route the client wish to perform
+Input / Output JSON: Depends on action ↗
+Generating presigned URLs
+Once your backend adapter has received and validated the request, you will next need to generate presigned URLs. First, generate some file keys for the files to be uploaded.
+
+To generate a file key, generate a Sqids ↗ of your appId with { minLength: 12 }, then concatenate this with a file seed of your choice. The file seed can be anything you want, but it should be unique for each file, as well as url safe. In this example, we include a base64 encoding to ensure the file seed is url safe, but you can do this however you want.
+
+Although we currently only offer a JavaScript SDK, here are some reference implementations you can use to generate valid file keys. We also plan on making this process easier in the future.
+
+If you struggle to implement it for your language, you can also request one from the /v7/prepareUpload REST endpoint. Keep in mind that this adds extra latency to your uploads.
+
+JavaScript
+Python
+PHP
+Go
+Rust
+import SQIds, { defaultOptions } from "sqids";
+function djb2(s: string) {
+  const h = 5381;
+  let i = s.length;
+  while (i) {
+    h = (h * 33) ^ s.charCodeAt(--i);
+  }
+  return (h & 0xbfffffff) | ((h >>> 1) & 0x40000000);
+}
+// A simple function to shuffle the alphabet for the Sqids
+function shuffle(str: string, seed: string) {
+  const chars = str.split("");
+  const seedNum = djb2(seed);
+  let temp: string;
+  let j: number;
+  for (let i = 0; i < chars.length; i++) {
+    j = ((seedNum % (i + 1)) + i) % chars.length;
+    temp = chars[i];
+    chars[i] = chars[j];
+    chars[j] = temp;
+  }
+  return chars.join("");
+}
+function generateKey(appId: string, fileSeed: string) {
+  // Hash and Encode the parts and apiKey as sqids
+  const alphabet = shuffle(defaultOptions.alphabet, appId);
+  const encodedAppId = new SQIds({ alphabet, minLength: 12 }).encode([
+    Math.abs(djb2(appId)),
+  ]);
+  // We use a base64 encoding here to ensure the file seed is url safe, but
+  // you can do this however you want
+  const encodedFileSeed = encodeBase64(fileSeed);
+  return `${encodedAppId}${encodedFileSeed}`;
+}
+
+Copy
+Copied!
+The URL, to which you will upload the file, will depend on your app's region. You can find the list of regions in the regions documentation. The upload URL can then be constructed using the following format:
+
+https://{{ REGION_ALIAS }}.ingest.uploadthing.com/{FILE_KEY}
+
+Next, generate a signed URL by appending some query parameters to the upload URL, and finally a signature parameter containing the HMAC SHA256 digest of the URL:
+
+const searchParams = new URLSearchParams({
+  // Required
+  expires: Date.now() + 60 * 60 * 1000, // 1 hour from now (you choose)
+  "x-ut-identifier": "MY_APP_ID",
+  "x-ut-file-name": "my-file.png",
+  "x-ut-file-size": 131072,
+  "x-ut-slug": "MY_FILE_ROUTE",
+  // Optional
+  "x-ut-file-type": "image/png",
+  "x-ut-custom-id": "MY_CUSTOM_ID",
+  "x-ut-content-disposition": "inline",
+  "x-ut-acl": "public-read",
+});
+const url = new URL(
+  `https://{{ REGION_ALIAS }}.ingest.uploadthing.com/${fileKey}`,
+);
+url.search = searchParams.toString();
+const signature = `hmac-sha256=${hmacSha256(url, apiKey)}`;
+url.searchParams.append("signature", signature);
+
+Copy
+Copied!
+Note that the expires parameter is measured in milliseconds since the Unix epoch.
+
+The upload will fail if any parameter doesn't match the uploaded file (e.g. the file is larger than the specified size). Constructing invalid file keys will also result in an error.
+
+Return the signed URL(s) to the client.
+
+Registering the upload
+As you return the signed URL(s) to the client and the client starts uploading, you'll need to register the upload to UploadThing. This is so that the metadata, the result of running the file route middleware, can be retrieved later. Include also the callback URL and slug, this will be used by UploadThing to callback your server when the upload has been completed so that you can run the onUploadComplete / onUploadError callbacks for the upload.
+
+curl -X POST https://{{ REGION_ALIAS }}.ingest.uploadthing.com/route-metadata \
+    --header 'content-type: application/json' \
+    --header 'x-uploadthing-api-key: YOUR_API_KEY' \
+    --data '{
+        "fileKeys": [
+          "KEY_1",
+        ],
+        "metadata": {
+          "uploadedBy": "user_123"
+        },
+        "callbackUrl": "https://your-domain.com/api/uploadthing",
+        "callbackSlug": "imageUploader",
+        "awaitServerData": false,
+        "isDev": false
+    }'
+
+Copy
+Copied!
+The two boolean flags are optional, and used to alter the behaviour of the upload.
+
+awaitServerData: If set to true, the upload request will not respond immediately after file upload, but instead wait for your server to call the /callback-result endpoint with the result of running the onUploadComplete callback. Enable this only if your client needs to get data from the server callback as it will increase the duration of the upload.
+
+isDev: If set to true, the response of this request will be a ReadableStream instead of JSON. The stream will be open for the duration of the upload and enqueue chunks as files are uploaded. This is in exchange of callback requests when your dev server cannot be reached from external servers. Each chunk will be a JSON string containing payload, signature and hook. Forward these to send a request to your dev server to simulate the callback request in development.
+
+curl -X POST http://localhost:3000/api/uploadthing \
+  --header 'content-type: application/json' \
+  --header 'x-uploadthing-signature: {{ SIGNATURE }}' \
+  --header 'uploadthing-hook: {{ HOOK }}' \
+  --data '{{ PAYLOAD }}'
+
+Copy
+Copied!
+Uploading the files
+Uploading the files is as simple as submitting a PUT request to the signed URL.
+
+const formData = new FormData();
+formData.append("file", file);
+await fetch(presigned.url, {
+  method: "PUT",
+  body: formData,
+});
+
+Copy
+Copied!
+If you want to implement resumable uploads, you can additionally include the Range header in the request, with the starting byte offset. To get the range start, you can send a HEAD request to the presigned URL and get the x-ut-range-start header.
+
+const rangeStart = await fetch(presigned.url, { method: "HEAD" }).then((res) =>
+  parseInt(res.headers.get("x-ut-range-start") ?? "0", 10),
+);
+await fetch(presigned.url, {
+  method: "PUT",
+  headers: {
+    Range: `bytes=${rangeStart}-`,
+  },
+  body: file.slice(rangeStart),
+});
+
+Copy
+Copied!
+Handling the callback request
+When your file has been uploaded, the UploadThing API will send a callback request (similar to a webhook) to the callbackUrl you provided when requesting the presigned URLs. The callback request will contain the file information along with the metadata.
+
+As explained earlier, if the isDev flag is set to true, you'll have to simulate this request yourself using the received chunks from the readable stream.
+
+You can identify the hook by the presence of the uploadthing-hook header and verify it using the x-uploadthing-signature header. The signature is a HMAC SHA256 of the request body signed using your API key, which you can verify to ensure the request is authentic and originates from the UploadThing server.
+
+After you have verified the request is authentic, run the onUploadComplete function for the file route. The data returned from the callback can then be submitted back to the UploadThing API using the /callback-result endpoint. Once the data has been submitted, the client upload request will finish assuming the awaitServerData flag was set to true when registerring the upload in a previous step.
+
+Congratulations, you have now uploaded your files to UploadThing.
+
+Server Side Uploads
+Sometimes you may either produce the file on your server, or want to validate the file's content before uploading it. In these cases, you can use server-side uploads and first submit the files to your server and then from your server upload the files to UploadThing.
+
+Server side uploads
+For server-side uploads, you will need to do your own validation based on your needs, the upload request does not go through any file router. You can use the UTApi.uploadFiles method to upload the files after you have validated and processed the request.
+
+Going forward, we will assume you have already received the file on your server, for example using FormData from a file upload form.
+
+Fortunately, server side uploads are very straight forward, and in many ways similar to client side uploads. Generating presigned URLs is the same for server-side uploads as for client-side uploads. The only difference is that you do not have to include the x-ut-slug search parameter in the URL.
+
+After you have generated the presigned URLs, you can upload the files to UploadThing using the same steps as explained for client-side uploads. The response of the request will contain the file information for successful uploads, or an error message if the upload failed.
+
+And that's it. There is no need to register the upload to UploadThing, or handle any callback requests when doing server-side uploads.
+
+Working with Files
+After your files have been uploaded, you will most likely want to do something with them. This page shows how to work with your uploaded files.
+
+Accessing Public Files
+UploadThing serves all files from a CDN at the following URL pattern:
+
+https://<APP_ID>.ufs.sh/f/<FILE_KEY>
+
+If you set a customId when uploading the file, you can also use https://<APP_ID>.ufs.sh/f/<CUSTOM_ID> to access it.
+
+Do not use the raw file URL from the storage provider, e.g. https://bucket.s3.region.amazonaws.com/<FILE_KEY>. We reserve the right to move objects between different storage providers and/or buckets, so this URL is not guaranteed to remain valid.
+
+Previously, all files were served from https://utfs.io/f/<FILE_KEY>. This is still supported, but not recommended and may be deprecated in the future.
+
+Given that all files are served from a subdomain of your app, you have granular control over what URLs are allowed to be processed. Below is an example of how to setup image optimization allow filtering in Next.js that only allows optimizing images from your app:
+
+/** @type {import('next').NextConfig} */
+export default {
+  images: {
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "<APP_ID>.ufs.sh",
+        pathname: "/f/*",
+      },
+    ],
+  },
+};
+
+Copy
+Copied!
+Accessing Private Files
+If your files are protected with access controls, you can generate a presigned URL using UTApi.generateSignedURL. Here's a reference implementation using Node.js crypto:
+
+import crypto from "node:crypto";
+const apiKey = "sk_live_...";
+const url = new URL("https://<APP_ID>.ufs.sh/f/<FILE_KEY>");
+const algorithm = "hmac-sha256";
+// Set expiration to 30 seconds from now (you choose how long you want the URL to be valid for)
+const expires = Date.now() + 1000 * 30;
+url.searchParams.set("expires", String(expires));
+const signature = crypto
+  .createHmac(algorithm, apiKey)
+  .update(url.href)
+  .digest("hex");
+url.searchParams.set("signature", `${algorithm}=${signature}`);
+// The URL is now signed and ready to use
+await fetch(url); // Status 200 OK
+
+Copy
+Copied!
+The URL will be valid for the duration in milliseconds you set in the expires parameter or until the API key is deleted or revoked.
+
+You can also request presigned URLs using the /requestFileAccess API endpoint (see OpenAPI Specification). However, generating URLs client-side is faster as it avoids an additional API call.
+
+The presigned URL follows the same patterns as public files, with additional query parameters to authenticate the request.
+
+Other File Operations
+Please refer to our server SDK, UTApi for more information on how to work with files. You can also access the API directly using the OpenAPI Specification.
+
+
+
+
+
