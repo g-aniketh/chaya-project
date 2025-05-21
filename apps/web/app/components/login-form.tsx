@@ -1,9 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
-
-import { useAuth } from '@/app/providers/auth-provider';
 import { AlertCircle } from 'lucide-react';
 import { Alert, AlertDescription } from '@workspace/ui/components/alert';
 import { Label } from '@workspace/ui/components/label';
@@ -18,8 +15,6 @@ export function LoginForm({ className, ...props }: React.ComponentPropsWithoutRe
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const router = useRouter();
-  const { setUser } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,27 +24,27 @@ export function LoginForm({ className, ...props }: React.ComponentPropsWithoutRe
     try {
       const response = await fetch(`${BACKEND_URL}/api/auth/login`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
         credentials: 'include',
       });
 
+      const data = await response.json();
+
       if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.message || 'Invalid credentials');
+        throw new Error(data.error || data.message || 'Invalid credentials or login failed');
       }
 
-      const data = await response.json();
-      setUser(data.user);
-      router.push('/dashboard');
+      if (typeof window !== 'undefined') {
+        console.log('Login successful. AuthProvider will handle redirect from /login page.');
+      }
     } catch (err: unknown) {
       if (err instanceof Error) {
-        setError(err.message || 'An error occurred during login');
+        setError(err.message);
       } else {
-        setError('An error occurred during login');
+        setError('An unexpected error occurred during login.');
       }
+      console.error('Login form error:', err);
     } finally {
       setIsLoading(false);
     }
