@@ -2,16 +2,23 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { prisma, Prisma } from '@chaya/shared';
 import { authenticate, verifyAdmin, type AuthenticatedRequest } from '../middlewares/auth';
 import { createSaleSchema } from '@chaya/shared';
-import Redis from 'ioredis';
+import redisClient from '../lib/redis';
 
-const redis = new Redis();
-
-async function invalidateSalesCache(batchId?: number | string) {
+async function invalidateRelatedBatchCacheForSale(batchId: number | string) {
   const keysToDelete: string[] = [];
-  const listKeys = await redis.keys('processing-batches:list:*');
-  if (listKeys.length) keysToDelete.push(...listKeys);
-  if (batchId) keysToDelete.push(`processing-batch:${batchId}`);
-  if (keysToDelete.length) await redis.del(...keysToDelete);
+  keysToDelete.push(`processing-batch:${batchId}`);
+  const batchListKeys = await redisClient.keys('processing-batches:list:*');
+  if (batchListKeys.length > 0) {
+    keysToDelete.push(...batchListKeys);
+  }
+  if (keysToDelete.length > 0) {
+    try {
+      await redisClient.del(keysToDelete);
+      console.log(`Invalidated sale-related batch cache for batch ${batchId}: ${keysToDelete.join(', ')}`);
+    } catch (e) {
+      console.error(`Redis DEL error (sale-related batch cache ${batchId}):`, e);
+    }
+  }
 }
 
 async function salesRoutes(fastify: FastifyInstance) {
@@ -58,7 +65,7 @@ async function salesRoutes(fastify: FastifyInstance) {
         },
       });
 
-      await invalidateSalesCache(processingBatchId);
+      await invalidateRelatedBatchCacheForSale(newSale.processingBatchId);
       return reply.status(201).send(newSale);
     } catch (error: any) {
       if (error.issues) return reply.status(400).send({ error: 'Invalid request data', details: error.issues });
@@ -67,7 +74,6 @@ async function salesRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // GET route remains the same
   fastify.get('/', { preHandler: [verifyAdmin] }, async (request: FastifyRequest, reply: FastifyReply) => {
     const { processingBatchId, processingStageId } = request.query as {
       processingBatchId?: string;
@@ -77,16 +83,21 @@ async function salesRoutes(fastify: FastifyInstance) {
     if (processingBatchId) where.processingBatchId = parseInt(processingBatchId);
     if (processingStageId) where.processingStageId = parseInt(processingStageId);
 
-    const sales = await prisma.sale.findMany({
-      where,
-      include: {
-        processingBatch: { select: { batchCode: true, crop: true } },
-        processingStage: { select: { processingCount: true } },
-        createdBy: { select: { name: true } },
-      },
-      orderBy: { dateOfSale: 'desc' },
-    });
-    return sales;
+    try {
+      const sales = await prisma.sale.findMany({
+        where,
+        include: {
+          processingBatch: { select: { batchCode: true, crop: true } },
+          processingStage: { select: { processingCount: true } },
+          createdBy: { select: { name: true } },
+        },
+        orderBy: { dateOfSale: 'desc' },
+      });
+      return sales;
+    } catch (error) {
+      console.error('Error fetching sales:', error);
+      return reply.status(500).send({ error: 'Server error fetching sales' });
+    }
   });
 }
 

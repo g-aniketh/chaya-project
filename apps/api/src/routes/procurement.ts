@@ -5,6 +5,33 @@ import { createProcurementSchema, updateProcurementSchema, procurementQuerySchem
 import { generateProcurementNumber } from '../helper';
 import { Prisma } from '@prisma/client';
 import { format } from 'date-fns';
+import redisClient from '../lib/redis';
+
+const PROCUREMENT_DETAIL_CACHE_PREFIX = 'procurements:';
+const PROCUREMENT_LIST_CACHE_PREFIX = 'procurements:list:';
+const UNBATCHED_PROCUREMENT_LIST_CACHE_PREFIX = 'procurements:unbatched:list:';
+const CACHE_TTL_SECONDS = 3600;
+
+async function invalidateProcurementCache(procurementId?: number | string) {
+  const keysToDelete: string[] = [];
+  if (procurementId) {
+    keysToDelete.push(`${PROCUREMENT_DETAIL_CACHE_PREFIX}${procurementId}`);
+  }
+  const listKeys = await redisClient.keys(`${PROCUREMENT_LIST_CACHE_PREFIX}*`);
+  if (listKeys.length > 0) keysToDelete.push(...listKeys);
+
+  const unbatchedListKeys = await redisClient.keys(`${UNBATCHED_PROCUREMENT_LIST_CACHE_PREFIX}*`);
+  if (unbatchedListKeys.length > 0) keysToDelete.push(...unbatchedListKeys);
+
+  if (keysToDelete.length > 0) {
+    try {
+      await redisClient.del(keysToDelete);
+      console.log(`Invalidated procurement cache for: ${keysToDelete.join(', ')}`);
+    } catch (e) {
+      console.error('Redis DEL error (procurement cache):', e);
+    }
+  }
+}
 
 async function procurementRoutes(fastify: FastifyInstance) {
   fastify.post('/', { preHandler: [authenticate] }, async (request: FastifyRequest, reply: FastifyReply) => {
@@ -50,6 +77,7 @@ async function procurementRoutes(fastify: FastifyInstance) {
         },
       });
 
+      await invalidateProcurementCache();
       return { procurement };
     } catch (error: any) {
       if (error.issues) {
@@ -61,6 +89,19 @@ async function procurementRoutes(fastify: FastifyInstance) {
   });
 
   fastify.get('/', { preHandler: [authenticate] }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const query = procurementQuerySchema.parse(request.query);
+    const cacheKey = `${PROCUREMENT_LIST_CACHE_PREFIX}${JSON.stringify(query)}`;
+    try {
+      const cached = await redisClient.get(cacheKey);
+      if (cached) {
+        console.log(`Cache hit for ${cacheKey}`);
+        return JSON.parse(cached);
+      }
+      console.log(`Cache miss for ${cacheKey}`);
+    } catch (e) {
+      console.error(`Redis GET error (${cacheKey}):`, e);
+    }
+
     try {
       const {
         page,
@@ -103,24 +144,40 @@ async function procurementRoutes(fastify: FastifyInstance) {
         }),
         prisma.procurement.count({ where }),
       ]);
-
-      return {
+      const result = {
         procurements,
         pagination: { page, limit, totalCount, totalPages: Math.ceil(totalCount / limit) },
       };
-    } catch (error: any) {
-      if (error.issues) {
-        return reply.status(400).send({ error: 'Invalid query parameters', details: error.issues });
+      try {
+        await redisClient.set(cacheKey, JSON.stringify(result), 'EX', CACHE_TTL_SECONDS);
+      } catch (e) {
+        console.error(`Redis SET error (${cacheKey}):`, e);
       }
-      console.error('Get procurements error:', error);
+      return result;
+    } catch (error: any) {
+      if (error.issues) return reply.status(400).send({ error: 'Invalid query parameters', details: error.issues });
+      console.error('DB error fetching procurements:', error);
       return reply.status(500).send({ error: 'Server error fetching procurements' });
     }
   });
 
   fastify.get('/unbatched', { preHandler: [authenticate] }, async (request: FastifyRequest, reply: FastifyReply) => {
-    try {
-      const { crop, lotNo } = request.query as { crop?: string; lotNo?: string }; // Removed procuredForm as it's not used here
+    const { crop, lotNo } = request.query as { crop?: string; lotNo?: string };
+    const queryParamsForCache = { crop, lotNo };
+    const cacheKey = `${UNBATCHED_PROCUREMENT_LIST_CACHE_PREFIX}${JSON.stringify(queryParamsForCache)}`;
 
+    try {
+      const cached = await redisClient.get(cacheKey);
+      if (cached) {
+        console.log(`Cache hit for ${cacheKey}`);
+        return JSON.parse(cached);
+      }
+      console.log(`Cache miss for ${cacheKey}`);
+    } catch (e) {
+      console.error(`Redis GET error (${cacheKey}):`, e);
+    }
+
+    try {
       const whereClause: Prisma.ProcurementWhereInput = {
         processingBatchId: null,
       };
@@ -141,23 +198,37 @@ async function procurementRoutes(fastify: FastifyInstance) {
         orderBy: [{ date: 'asc' }, { id: 'asc' }],
         take: 500,
       });
-      return { procurements: unbatchedProcurements };
-    } catch (error) {
-      console.error('Error fetching unbatched procurements:', error);
-      // Log the actual Prisma error if it's a Prisma error
-      if (
-        error instanceof Prisma.PrismaClientKnownRequestError ||
-        error instanceof Prisma.PrismaClientValidationError
-      ) {
-        console.error('Prisma Error Meta:', (error as any).meta);
+      const result = { procurements: unbatchedProcurements };
+      try {
+        await redisClient.set(cacheKey, JSON.stringify(result), 'EX', CACHE_TTL_SECONDS);
+      } catch (e) {
+        console.error(`Redis SET error (${cacheKey}):`, e);
       }
+      return result;
+    } catch (error: any) {
+      console.error('Error fetching unbatched procurements:', error);
       return reply.status(500).send({ error: 'Failed to fetch unbatched procurements' });
     }
   });
 
   fastify.get('/:id', { preHandler: [authenticate] }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const { id } = request.params as { id: string };
+    const procurementId = parseInt(id);
+    if (isNaN(procurementId)) return reply.status(400).send({ error: 'Invalid ID format.' });
+    const cacheKey = `${PROCUREMENT_DETAIL_CACHE_PREFIX}${procurementId}`;
+
     try {
-      const { id } = request.params as { id: string };
+      const cached = await redisClient.get(cacheKey);
+      if (cached) {
+        console.log(`Cache hit for ${cacheKey}`);
+        return { procurement: JSON.parse(cached) };
+      }
+      console.log(`Cache miss for ${cacheKey}`);
+    } catch (e) {
+      console.error(`Redis GET error (${cacheKey}):`, e);
+    }
+
+    try {
       const procurementId = parseInt(id);
       if (isNaN(procurementId)) return reply.status(400).send({ error: 'Invalid ID format.' });
 
@@ -170,16 +241,24 @@ async function procurementRoutes(fastify: FastifyInstance) {
       });
 
       if (!procurement) return reply.status(404).send({ error: 'Procurement not found' });
+      try {
+        await redisClient.set(cacheKey, JSON.stringify(procurement), 'EX', CACHE_TTL_SECONDS);
+      } catch (e) {
+        console.error(`Redis SET error (${cacheKey}):`, e);
+      }
       return { procurement };
     } catch (error) {
-      console.error('Get procurement error:', error);
-      return reply.status(500).send({ error: 'Server error' });
+      console.error(`DB error fetching procurement ${procurementId}:`, error);
+      return reply.status(500).send({ error: 'Server error fetching procurement' });
     }
   });
 
   fastify.put('/:id', { preHandler: [verifyAdmin] }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const { id } = request.params as { id: string };
+    const procurementId = parseInt(id);
+    if (isNaN(procurementId)) return reply.status(400).send({ error: 'Invalid ID format.' });
+
     try {
-      const { id } = request.params as { id: string };
       const procurementId = parseInt(id);
       if (isNaN(procurementId)) return reply.status(400).send({ error: 'Invalid ID format.' });
 
@@ -216,17 +295,21 @@ async function procurementRoutes(fastify: FastifyInstance) {
           vehicleNo: data.vehicleNo,
         },
       });
+      await invalidateProcurementCache(procurementId);
       return { procurement: updatedProcurement };
     } catch (error: any) {
       if (error.issues) return reply.status(400).send({ error: 'Invalid request data', details: error.issues });
-      console.error('Update procurement error:', error);
+      console.error(`DB/Validation error updating procurement ${procurementId}:`, error);
       return reply.status(500).send({ error: 'Server error updating procurement' });
     }
   });
 
   fastify.delete('/:id', { preHandler: [verifyAdmin] }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const { id } = request.params as { id: string };
+    const procurementId = parseInt(id);
+    if (isNaN(procurementId)) return reply.status(400).send({ error: 'Invalid ID format.' });
+
     try {
-      const { id } = request.params as { id: string };
       const procurementId = parseInt(id);
       if (isNaN(procurementId)) return reply.status(400).send({ error: 'Invalid ID format.' });
 
@@ -241,7 +324,7 @@ async function procurementRoutes(fastify: FastifyInstance) {
       await prisma.procurement.delete({ where: { id: procurementId } });
       return { success: true };
     } catch (error) {
-      console.error('Delete procurement error:', error);
+      console.error(`DB error deleting procurement ${procurementId}:`, error);
       return reply.status(500).send({ error: 'Server error' });
     }
   });

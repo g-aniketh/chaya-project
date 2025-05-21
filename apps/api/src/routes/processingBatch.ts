@@ -3,25 +3,35 @@ import { prisma, Prisma, ProcessingStageStatus as PrismaProcessingStageStatus } 
 import { authenticate, verifyAdmin, type AuthenticatedRequest } from '../middlewares/auth';
 import { createProcessingBatchSchema, processingBatchQuerySchema } from '@chaya/shared';
 import { generateProcessingBatchCode } from '../helper';
-import Redis from 'ioredis';
+import redisClient from '../lib/redis';
 
-const redis = new Redis();
-
-async function invalidateProcessingCache(batchId?: number | string | (number | string)[]) {
-  const keysToDelete: string[] = [];
-  const listKeys = await redis.keys('processing-batches:list:*');
-  if (listKeys.length) keysToDelete.push(...listKeys);
-
-  if (Array.isArray(batchId)) {
-    batchId.forEach(id => keysToDelete.push(`processing-batch:${id}`));
-  } else if (batchId) {
-    keysToDelete.push(`processing-batch:${batchId}`);
-  }
-
-  if (keysToDelete.length) await redis.del(...keysToDelete);
-}
+const BATCH_DETAIL_CACHE_PREFIX = 'processing-batch:';
+const BATCH_LIST_CACHE_PREFIX = 'processing-batches:list:';
+const CACHE_TTL_SECONDS = 3600;
 
 type ExtendedProcessingStageStatus = PrismaProcessingStageStatus | 'SOLD_OUT' | 'NO_STAGES';
+
+async function invalidateProcessingBatchCache(batchId?: number | string | (number | string)[]) {
+  const keysToDelete: string[] = [];
+
+  if (Array.isArray(batchId)) {
+    batchId.forEach(id => keysToDelete.push(`${BATCH_DETAIL_CACHE_PREFIX}${id}`));
+  } else if (batchId) {
+    keysToDelete.push(`${BATCH_DETAIL_CACHE_PREFIX}${batchId}`);
+  }
+
+  const listKeys = await redisClient.keys(`${BATCH_LIST_CACHE_PREFIX}*`);
+  if (listKeys.length > 0) keysToDelete.push(...listKeys);
+
+  if (keysToDelete.length > 0) {
+    try {
+      await redisClient.del(keysToDelete);
+      console.log(`Invalidated processing batch cache for: ${keysToDelete.join(', ')}`);
+    } catch (e) {
+      console.error('Redis DEL error (processing batch cache):', e);
+    }
+  }
+}
 
 async function processingBatchRoutes(fastify: FastifyInstance) {
   fastify.post('/', { preHandler: [authenticate] }, async (request: FastifyRequest, reply: FastifyReply) => {
@@ -102,13 +112,14 @@ async function processingBatchRoutes(fastify: FastifyInstance) {
         }
       );
 
-      await invalidateProcessingCache();
+      const unbatchedProcListKeys = await redisClient.keys('procurements:unbatched:list:*');
+      if (unbatchedProcListKeys.length) await redisClient.del(unbatchedProcListKeys);
+      const allProcListKeys = await redisClient.keys('procurements:list:*');
+      if (allProcListKeys.length) await redisClient.del(allProcListKeys);
+      await invalidateProcessingBatchCache();
+
       return reply.status(201).send({ batch: result });
     } catch (error: any) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2028') {
-        console.error('Transaction timeout error:', error);
-        return reply.status(500).send({ error: 'Server operation timed out, please try again.' });
-      }
       if (error.issues) return reply.status(400).send({ error: 'Invalid request data', details: error.issues });
       console.error('Create processing batch error:', error);
       return reply.status(500).send({ error: 'Server error creating processing batch' });
@@ -117,11 +128,19 @@ async function processingBatchRoutes(fastify: FastifyInstance) {
 
   fastify.get('/', { preHandler: [authenticate] }, async (request: FastifyRequest, reply: FastifyReply) => {
     const query = processingBatchQuerySchema.parse(request.query);
-    const cacheKey = `processing-batches:list:${JSON.stringify(query)}`;
+    const cacheKey = `${BATCH_LIST_CACHE_PREFIX}${JSON.stringify(query)}`;
     try {
-      const cached = await redis.get(cacheKey);
-      if (cached) return JSON.parse(cached);
+      const cached = await redisClient.get(cacheKey);
+      if (cached) {
+        console.log(`Cache hit for ${cacheKey}`);
+        return JSON.parse(cached);
+      }
+      console.log(`Cache miss for ${cacheKey}`);
+    } catch (e) {
+      console.error(`Redis GET error (${cacheKey}):`, e);
+    }
 
+    try {
       const page = query.page || 1;
       const limit = query.limit || 10;
       const skip = (page - 1) * limit;
@@ -204,16 +223,20 @@ async function processingBatchRoutes(fastify: FastifyInstance) {
       const finalTotalCount = statusFilteredBatches.length;
       const paginatedBatches = statusFilteredBatches.slice(skip, skip + limit);
 
-      const result = {
+      const finalResult = {
         processingBatches: paginatedBatches,
         pagination: { page, limit, totalCount: finalTotalCount, totalPages: Math.ceil(finalTotalCount / limit) },
       };
-      await redis.set(cacheKey, JSON.stringify(result), 'EX', 3600);
-      return result;
+      try {
+        await redisClient.set(cacheKey, JSON.stringify(finalResult), 'EX', CACHE_TTL_SECONDS);
+      } catch (e) {
+        console.error(`Redis SET error (${cacheKey}):`, e);
+      }
+      return finalResult;
     } catch (error: any) {
       if (error.issues) return reply.status(400).send({ error: 'Invalid query parameters', details: error.issues });
-      console.error('Get processing batches error:', error);
-      return reply.status(500).send({ error: 'Server error' });
+      console.error('DB error fetching processing batches:', error);
+      return reply.status(500).send({ error: 'Server error fetching processing batches' });
     }
   });
 
@@ -222,18 +245,19 @@ async function processingBatchRoutes(fastify: FastifyInstance) {
     const id = parseInt(batchId);
     if (isNaN(id)) return reply.status(400).send({ error: 'Invalid Batch ID' });
 
-    const cacheKey = `processing-batch:${id}`;
+    const cacheKey = `${BATCH_DETAIL_CACHE_PREFIX}${id}`;
     try {
-      const cached = await redis.get(cacheKey);
+      const cached = await redisClient.get(cacheKey);
       if (cached) {
-        try {
-          const parsedCached = JSON.parse(cached);
-          return parsedCached;
-        } catch (e) {
-          console.warn('Error parsing or re-evaluating cache for batch detail, fetching fresh.', e);
-        }
+        console.log(`Cache hit for ${cacheKey}`);
+        return JSON.parse(cached);
       }
+      console.log(`Cache miss for ${cacheKey}`);
+    } catch (e) {
+      console.error(`Redis GET error (${cacheKey}):`, e);
+    }
 
+    try {
       const batchFromDb = await prisma.processingBatch.findUnique({
         where: { id },
         include: {
@@ -300,10 +324,14 @@ async function processingBatchRoutes(fastify: FastifyInstance) {
         latestStageSummary: latestStageSummaryData,
       };
 
-      await redis.set(cacheKey, JSON.stringify(batchWithDetails), 'EX', 3600);
+      try {
+        await redisClient.set(cacheKey, JSON.stringify(batchWithDetails), 'EX', CACHE_TTL_SECONDS);
+      } catch (e) {
+        console.error(`Redis SET error (${cacheKey}):`, e);
+      }
       return batchWithDetails;
     } catch (error) {
-      console.error(`Error fetching batch ${id}:`, error);
+      console.error(`DB error fetching batch ${id}:`, error);
       return reply.status(500).send({ error: 'Server error' });
     }
   });
@@ -329,6 +357,13 @@ async function processingBatchRoutes(fastify: FastifyInstance) {
         });
       }
 
+      const unbatchedProcIds = (
+        await prisma.procurement.findMany({
+          where: { processingBatchId: id },
+          select: { id: true },
+        })
+      ).map(p => p.id);
+
       await prisma.$transaction(async tx => {
         await tx.procurement.updateMany({
           where: { processingBatchId: id },
@@ -338,7 +373,16 @@ async function processingBatchRoutes(fastify: FastifyInstance) {
         await tx.processingBatch.delete({ where: { id } });
       });
 
-      await invalidateProcessingCache(id);
+      await invalidateProcessingBatchCache(id);
+
+      const unbatchedProcListKeys = await redisClient.keys('procurements:unbatched:list:*');
+      if (unbatchedProcListKeys.length) await redisClient.del(unbatchedProcListKeys);
+      const allProcListKeys = await redisClient.keys('procurements:list:*');
+      if (allProcListKeys.length) await redisClient.del(allProcListKeys);
+      for (const procId of unbatchedProcIds) {
+        await redisClient.del(`procurements:${procId}`);
+      }
+
       return { success: true, message: `Processing batch ${batch.batchCode} and its related data deleted.` };
     } catch (error) {
       console.error(`Error deleting batch ${id}:`, error);
@@ -359,6 +403,11 @@ async function processingBatchRoutes(fastify: FastifyInstance) {
     if (validIds.length !== ids.length) {
       return reply.status(400).send({ error: 'All IDs must be valid numbers.' });
     }
+
+    const procurementsToInvalidate = await prisma.procurement.findMany({
+      where: { processingBatchId: { in: validIds } },
+      select: { id: true },
+    });
 
     let deletedCount = 0;
     const errors: { id: number; error: string }[] = [];
@@ -396,7 +445,15 @@ async function processingBatchRoutes(fastify: FastifyInstance) {
       }
     }
 
-    await invalidateProcessingCache(validIds);
+    await invalidateProcessingBatchCache(validIds);
+
+    const unbatchedProcListKeys = await redisClient.keys('procurements:unbatched:list:*');
+    if (unbatchedProcListKeys.length) await redisClient.del(unbatchedProcListKeys);
+    const allProcListKeys = await redisClient.keys('procurements:list:*');
+    if (allProcListKeys.length) await redisClient.del(allProcListKeys);
+    for (const proc of procurementsToInvalidate) {
+      await redisClient.del(`procurements:${proc.id}`);
+    }
 
     if (errors.length > 0) {
       return reply.status(207).send({

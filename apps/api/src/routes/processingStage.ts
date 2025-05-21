@@ -2,18 +2,24 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { prisma, Prisma, ProcessingStageStatus } from '@chaya/shared';
 import { authenticate, type AuthenticatedRequest } from '../middlewares/auth';
 import { createProcessingStageSchema, finalizeProcessingStageSchema, createDryingEntrySchema } from '@chaya/shared';
-import Redis from 'ioredis';
+import redisClient from '../lib/redis';
 
-const redis = new Redis();
-
-async function invalidateStageRelatedCache(batchId?: number | string, stageId?: number | string) {
+async function invalidateRelatedBatchCacheForStage(batchId: number | string) {
   const keysToDelete: string[] = [];
-  const listKeys = await redis.keys('processing-batches:list:*');
-  if (listKeys.length) keysToDelete.push(...listKeys);
-  if (batchId) {
-    keysToDelete.push(`processing-batch:${batchId}`);
+  keysToDelete.push(`processing-batch:${batchId}`);
+  const batchListKeys = await redisClient.keys('processing-batches:list:*');
+  if (batchListKeys.length > 0) {
+    keysToDelete.push(...batchListKeys);
   }
-  if (keysToDelete.length) await redis.del(...keysToDelete);
+
+  if (keysToDelete.length > 0) {
+    try {
+      await redisClient.del(keysToDelete);
+      console.log(`Invalidated stage-related batch cache for batch ${batchId} : ${keysToDelete.join(', ')}`);
+    } catch (e) {
+      console.error(`Redis DEL error (stage-related batch cache ${batchId}):`, e);
+    }
+  }
 }
 
 async function processingStageRoutes(fastify: FastifyInstance) {
@@ -78,7 +84,7 @@ async function processingStageRoutes(fastify: FastifyInstance) {
         },
       });
 
-      await invalidateStageRelatedCache(processingBatchId, newStage.id.toString());
+      await invalidateRelatedBatchCacheForStage(newStage.processingBatchId);
       return reply.status(201).send(newStage);
     } catch (error: any) {
       if (error.issues) return reply.status(400).send({ error: 'Invalid request data', details: error.issues });
@@ -91,11 +97,11 @@ async function processingStageRoutes(fastify: FastifyInstance) {
     '/:stageId/finalize',
     { preHandler: [authenticate] },
     async (request: FastifyRequest, reply: FastifyReply) => {
-      try {
-        const { stageId } = request.params as { stageId: string };
-        const id = parseInt(stageId);
-        if (isNaN(id)) return reply.status(400).send({ error: 'Invalid Stage ID' });
+      const { stageId } = request.params as { stageId: string };
+      const id = parseInt(stageId);
+      if (isNaN(id)) return reply.status(400).send({ error: 'Invalid Stage ID' });
 
+      try {
         const { dateOfCompletion, quantityAfterProcess } = finalizeProcessingStageSchema.parse(request.body);
 
         const stage = await prisma.processingStage.findUnique({ where: { id } });
@@ -115,11 +121,11 @@ async function processingStageRoutes(fastify: FastifyInstance) {
           },
         });
 
-        await invalidateStageRelatedCache(updatedStage.processingBatchId, updatedStage.id.toString());
+        await invalidateRelatedBatchCacheForStage(updatedStage.processingBatchId);
         return updatedStage;
       } catch (error: any) {
         if (error.issues) return reply.status(400).send({ error: 'Invalid request data', details: error.issues });
-        console.error('Finalize stage error:', error);
+        console.error(`Finalize stage ${id} error:`, error);
         return reply.status(500).send({ error: 'Server error finalizing stage' });
       }
     }
@@ -129,11 +135,11 @@ async function processingStageRoutes(fastify: FastifyInstance) {
     '/:stageId/drying',
     { preHandler: [authenticate] },
     async (request: FastifyRequest, reply: FastifyReply) => {
-      try {
-        const { stageId } = request.params as { stageId: string };
-        const id = parseInt(stageId);
-        if (isNaN(id)) return reply.status(400).send({ error: 'Invalid Stage ID' });
+      const { stageId } = request.params as { stageId: string };
+      const id = parseInt(stageId);
+      if (isNaN(id)) return reply.status(400).send({ error: 'Invalid Stage ID' });
 
+      try {
         const data = createDryingEntrySchema.parse({ ...(request.body as object), processingStageId: id });
 
         const stage = await prisma.processingStage.findUnique({ where: { id } });
@@ -150,12 +156,11 @@ async function processingStageRoutes(fastify: FastifyInstance) {
         }
 
         const newDryingEntry = await prisma.drying.create({ data });
-        await invalidateStageRelatedCache(stage.processingBatchId, stage.id.toString());
+        await invalidateRelatedBatchCacheForStage(stage!.processingBatchId);
         return reply.status(201).send(newDryingEntry);
       } catch (error: any) {
-        if (error.issues)
-          return reply.status(400).send({ error: 'Invalid request data for drying entry', details: error.issues });
-        console.error('Add drying data error:', error);
+        if (error.issues) return reply.status(400).send({ error: 'Invalid request data', details: error.issues });
+        console.error(`Add drying data to stage ${id} error:`, error);
         return reply.status(500).send({ error: 'Server error adding drying data' });
       }
     }
@@ -165,11 +170,11 @@ async function processingStageRoutes(fastify: FastifyInstance) {
     '/:stageId/drying',
     { preHandler: [authenticate] },
     async (request: FastifyRequest, reply: FastifyReply) => {
-      try {
-        const { stageId } = request.params as { stageId: string };
-        const id = parseInt(stageId);
-        if (isNaN(id)) return reply.status(400).send({ error: 'Invalid Stage ID' });
+      const { stageId } = request.params as { stageId: string };
+      const id = parseInt(stageId);
+      if (isNaN(id)) return reply.status(400).send({ error: 'Invalid Stage ID' });
 
+      try {
         const dryingEntries = await prisma.drying.findMany({
           where: { processingStageId: id },
           orderBy: { day: 'asc' },
