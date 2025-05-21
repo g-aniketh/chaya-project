@@ -29,12 +29,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
-  const API_BASE_URL = 'http://localhost:5000';
+
+  const BACKEND_URL = process.env.API_URL || 'http://localhost:5000';
 
   useEffect(() => {
     async function loadUserFromServer() {
       try {
-        const response = await fetch(`${API_BASE_URL}/api/auth/me`, {
+        const response = await fetch(`${BACKEND_URL}/api/auth/me`, {
           credentials: 'include',
           headers: {
             'Content-Type': 'application/json',
@@ -63,7 +64,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = async () => {
     try {
-      await fetch(`${API_BASE_URL}/api/auth/logout`, {
+      await fetch(`${BACKEND_URL}/api/auth/logout`, {
         method: 'POST',
         credentials: 'include',
       });

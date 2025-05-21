@@ -19,6 +19,8 @@ import { Input } from '@workspace/ui/components/input';
 import { Button } from '@workspace/ui/components/button';
 import { toast } from 'sonner';
 
+const BACKEND_URL = process.env.API_URL || 'http://localhost:5000';
+
 interface User {
   id: number;
   name: string;
@@ -63,7 +65,7 @@ export function EditStaffDialog({ user, open, onOpenChange, onUserUpdated }: Edi
 
     setIsSubmitting(true);
     try {
-      await axios.put(`http://localhost:5000/api/users/${user.id}`, updateData);
+      await axios.put(`${BACKEND_URL}/api/users/${user.id}`, updateData);
       toast.success("Staff member's details updated successfully");
       onUserUpdated();
       onOpenChange(false);

@@ -11,9 +11,9 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const backendUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000';
+    const BACKEND_URL = process.env.API_URL || 'http://localhost:5000';
 
-    const response = await fetch(`${backendUrl}/api/procurements`, {
+    const response = await fetch(`${BACKEND_URL}/api/procurements`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

@@ -38,16 +38,16 @@ export function FarmerForm({ mode, open, onOpenChange, farmerId }: FarmerFormPro
         },
       };
 
-      const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000';
+      const BACKEND_URL = process.env.API_URL || 'http://localhost:5000';
 
       if (mode === 'add') {
         console.log('Doing a POST request to add a new farmer');
-        const response = await axios.post(`${apiBaseUrl}/api/farmers`, data, axiosConfig);
+        const response = await axios.post(`${BACKEND_URL}/api/farmers`, data, axiosConfig);
         console.log('POST response:', response.data);
         toast.success('Farmer added successfully');
       } else {
         console.log('Doing a PUT request to update farmer', farmerId);
-        const response = await axios.put(`${apiBaseUrl}/api/farmers/${farmerId}`, data, axiosConfig);
+        const response = await axios.put(`${BACKEND_URL}/api/farmers/${farmerId}`, data, axiosConfig);
         console.log('PUT response:', response.data);
         toast.success('Farmer updated successfully');
       }

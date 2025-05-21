@@ -1,4 +1,3 @@
-// app/staff/components/add-staff-dialog.tsx
 'use client';
 
 import { useState } from 'react';
@@ -12,6 +11,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@workspace/ui/components/input';
 import { Button } from '@workspace/ui/components/button';
 import { toast } from 'sonner';
+
+const BACKEND_URL = process.env.API_URL || 'http://localhost:5000';
 
 // Form schema for validation
 const formSchema = z.object({
@@ -51,7 +52,7 @@ export function AddStaffDialog({ open, onOpenChange }: AddStaffDialogProps) {
   const onSubmit = async (data: FormValues) => {
     setIsSubmitting(true);
     try {
-      await axios.post('http://localhost:5000/api/auth/register', data, axiosConfig);
+      await axios.post(`${BACKEND_URL}/api/auth/register`, data, axiosConfig);
       toast.success('Staff member added successfully');
       form.reset();
       onOpenChange(false);

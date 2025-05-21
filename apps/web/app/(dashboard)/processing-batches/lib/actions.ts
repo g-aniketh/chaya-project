@@ -4,7 +4,7 @@ import { cookies } from 'next/headers';
 import type { ProcessingBatchWithDetails, ProcessingBatchWithSummary } from './types';
 import type { Drying, FinalizeProcessingStageInput } from '@chaya/shared';
 
-const BACKEND_API_URL = process.env.API_URL || 'http://localhost:5000';
+const BACKEND_URL = process.env.API_URL || 'http://localhost:5000';
 
 export async function getProcessingBatchDetailsById(batchId: number): Promise<ProcessingBatchWithDetails> {
   if (isNaN(batchId)) {
@@ -18,7 +18,7 @@ export async function getProcessingBatchDetailsById(batchId: number): Promise<Pr
       throw new Error('Authentication required');
     }
 
-    const fetchURL = `${BACKEND_API_URL}/api/processing-batches/${batchId}`;
+    const fetchURL = `${BACKEND_URL}/api/processing-batches/${batchId}`;
     const response = await fetch(fetchURL, {
       method: 'GET',
       headers: {
@@ -52,7 +52,7 @@ export async function getDryingEntriesForStage(stageId: number): Promise<Drying[
       throw new Error('Authentication required');
     }
 
-    const response = await fetch(`${BACKEND_API_URL}/api/processing-stages/${stageId}/drying`, {
+    const response = await fetch(`${BACKEND_URL}/api/processing-stages/${stageId}/drying`, {
       method: 'GET',
       headers: { Cookie: `token=${token}` },
     });
@@ -89,7 +89,7 @@ export async function getProcessingBatchesList(params: {
       searchParams.set('status', params.statusFilter);
     }
 
-    const response = await fetch(`${BACKEND_API_URL}/api/processing-batches?${searchParams.toString()}`, {
+    const response = await fetch(`${BACKEND_URL}/api/processing-batches?${searchParams.toString()}`, {
       method: 'GET',
       headers: { Cookie: `token=${token}` },
       cache: 'no-store',
@@ -120,7 +120,7 @@ export async function finalizeProcessingStageAction(
       throw new Error('Authentication required');
     }
 
-    const response = await fetch(`${BACKEND_API_URL}/api/processing-stages/${stageId}/finalize`, {
+    const response = await fetch(`${BACKEND_URL}/api/processing-stages/${stageId}/finalize`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
@@ -153,7 +153,7 @@ export async function deleteProcessingBatchAction(
       return { success: false, error: 'Authentication required' };
     }
 
-    const response = await fetch(`${BACKEND_API_URL}/api/processing-batches/${batchId}`, {
+    const response = await fetch(`${BACKEND_URL}/api/processing-batches/${batchId}`, {
       method: 'DELETE',
       headers: { Cookie: `token=${token}` },
     });
@@ -187,7 +187,7 @@ export async function bulkDeleteProcessingBatchesAction(
       return { success: false };
     }
 
-    const response = await fetch(`${BACKEND_API_URL}/api/processing-batches/bulk`, {
+    const response = await fetch(`${BACKEND_URL}/api/processing-batches/bulk`, {
       method: 'DELETE',
       headers: {
         'Content-Type': 'application/json',

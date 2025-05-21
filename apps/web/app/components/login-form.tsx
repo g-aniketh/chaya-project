@@ -11,6 +11,8 @@ import { Input } from '@workspace/ui/components/input';
 import { Button } from '@workspace/ui/components/button';
 import { cn } from '@workspace/ui/lib/utils';
 
+const BACKEND_URL = process.env.API_URL || 'http://localhost:5000';
+
 export function LoginForm({ className, ...props }: React.ComponentPropsWithoutRef<'form'>) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -25,7 +27,7 @@ export function LoginForm({ className, ...props }: React.ComponentPropsWithoutRe
     setError('');
 
     try {
-      const response = await fetch('http://localhost:5000/api/auth/login', {
+      const response = await fetch(`${BACKEND_URL}/api/auth/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

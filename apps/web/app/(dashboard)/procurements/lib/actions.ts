@@ -6,7 +6,7 @@ import type { ProcurementWithRelations } from './types';
 import type { UpdateProcurementInput } from '@chaya/shared';
 import type { ProcurementWithFarmerForStore } from '@/app/stores/processing-batch-form';
 
-const API_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000';
+const BACKEND_URL = process.env.API_URL || 'http://localhost:5000';
 
 interface GetProcurementsParams {
   page?: number;
@@ -23,7 +23,7 @@ export async function getProcurements({ page = 1, limit = 10, query = '' }: GetP
       throw new Error('Authentication token not found');
     }
 
-    const response = await axios.get(`${API_URL}/api/procurements`, {
+    const response = await axios.get(`${BACKEND_URL}/api/procurements`, {
       headers: {
         Cookie: `token=${token}`,
       },
@@ -51,7 +51,7 @@ export async function getProcurementPages(query = '') {
       throw new Error('Authentication token not found');
     }
 
-    const response = await axios.get(`${API_URL}/api/procurements`, {
+    const response = await axios.get(`${BACKEND_URL}/api/procurements`, {
       headers: {
         Cookie: `token=${token}`,
       },
@@ -81,7 +81,7 @@ export async function bulkDeleteProcurements(ids: number[]) {
       return { success: false, error: 'Authentication token not found' };
     }
 
-    const response = await fetch(`${API_URL}/api/procurements/bulk`, {
+    const response = await fetch(`${BACKEND_URL}/api/procurements/bulk`, {
       method: 'DELETE',
       headers: {
         'Content-Type': 'application/json',
@@ -111,7 +111,7 @@ export async function deleteProcurementAction(id: number) {
       return { success: false, error: 'Authentication token not found' };
     }
 
-    const response = await fetch(`${API_URL}/api/procurements/${id}`, {
+    const response = await fetch(`${BACKEND_URL}/api/procurements/${id}`, {
       method: 'DELETE',
       headers: {
         Cookie: `token=${token}`,
@@ -144,7 +144,7 @@ export async function getUnbatchedProcurementsAction(params?: {
     if (params?.crop) queryParams.set('crop', params.crop);
     if (params?.lotNo) queryParams.set('lotNo', params.lotNo);
 
-    const response = await fetch(`${API_URL}/api/procurements/unbatched?${queryParams.toString()}`, {
+    const response = await fetch(`${BACKEND_URL}/api/procurements/unbatched?${queryParams.toString()}`, {
       method: 'GET',
       headers: { Cookie: `token=${token}` },
       cache: 'no-store',
@@ -175,7 +175,7 @@ export async function updateProcurementAction(
       throw new Error('Authentication required');
     }
 
-    const response = await fetch(`${API_URL}/api/procurements/${procurementId}`, {
+    const response = await fetch(`${BACKEND_URL}/api/procurements/${procurementId}`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',

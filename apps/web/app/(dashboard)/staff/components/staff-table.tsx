@@ -29,7 +29,8 @@ import { MoreHorizontal, Edit, Trash2, Search, UserCircle, Calendar, Mail, Refre
 import axios from 'axios';
 import { formatDate, getTimeSince } from '../lib/utils';
 import { toast } from 'sonner';
-import { useAuth } from '@/app/providers/auth-provider';
+
+const BACKEND_URL = process.env.API_URL || 'http://localhost:5000';
 
 interface User {
   id: number;
@@ -53,7 +54,6 @@ export function StaffTable() {
   const [userToDelete, setUserToDelete] = useState<User | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const { user } = useAuth();
   const axiosConfig = {
     withCredentials: true,
     headers: {
@@ -84,10 +84,11 @@ export function StaffTable() {
   const fetchUsers = async () => {
     setIsLoading(true);
     try {
-      const response = await axios.get('http://localhost:5000/api/users', axiosConfig);
+      const response = await axios.get(`${BACKEND_URL}/api/users`, axiosConfig);
       setUsers(response.data.users);
       setFilteredUsers(response.data.users);
     } catch (error) {
+      console.log(error);
       toast.error('Failed to fetch staff members');
     } finally {
       setIsLoading(false);
@@ -113,10 +114,11 @@ export function StaffTable() {
   const confirmDeleteUser = async () => {
     if (!userToDelete) return;
     try {
-      await axios.delete(`http://localhost:5000/api/users/${userToDelete.id}`, axiosConfig);
+      await axios.delete(`${BACKEND_URL}/api/users/${userToDelete.id}`, axiosConfig);
       toast.success('Staff member deleted successfully');
       fetchUsers();
-    } catch (error: any) {
+    } catch (error) {
+      console.log(error);
       toast('Failed to delete staff member');
     } finally {
       setIsDeleteDialogOpen(false);
@@ -128,9 +130,10 @@ export function StaffTable() {
     setUsers(prev => prev.map(u => (u.id === user.id ? { ...u, isEnabled: !u.isEnabled } : u)));
     setFilteredUsers(prev => prev.map(u => (u.id === user.id ? { ...u, isEnabled: !u.isEnabled } : u)));
     try {
-      await axios.patch(`http://localhost:5000/api/users/${user.id}/toggle-status`, {}, axiosConfig);
+      await axios.patch(`${BACKEND_URL}/api/users/${user.id}/toggle-status`, {}, axiosConfig);
       toast.success('Staff member status updated successfully');
-    } catch (error: any) {
+    } catch (error) {
+      console.log(error);
       setUsers(prev => prev.map(u => (u.id === user.id ? { ...u, isEnabled: user.isEnabled } : u)));
       setFilteredUsers(prev => prev.map(u => (u.id === user.id ? { ...u, isEnabled: user.isEnabled } : u)));
       toast.error('Failed to update staff member status');
